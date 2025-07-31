@@ -78,20 +78,21 @@ async def root():
             },
             "legacy": {
                 "query": "string",
-                "document_url": "string (URL)"
+                "document_url": "string (URL) - Optional, uses local docs if not provided"
             }
         }
     }
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with Pinecone status"""
     global query_service
     
     services_status = {
         "query_service": query_service is not None,
         "embedding_service": query_service.embedding_service.is_initialized if query_service else False,
-        "llm_service": query_service.llm_service.is_initialized if query_service else False
+        "llm_service": query_service.llm_service.is_initialized if query_service else False,
+        "pinecone_service": query_service.embedding_service.pinecone_service.is_initialized if query_service else False
     }
     
     health_status = {
@@ -99,6 +100,11 @@ async def health_check():
         "timestamp": time.time(),
         "services": services_status
     }
+    
+    # Add Pinecone stats if available
+    if query_service and query_service.embedding_service.pinecone_service.is_initialized:
+        pinecone_stats = await query_service.embedding_service.pinecone_service.get_index_stats()
+        health_status["pinecone_stats"] = pinecone_stats
     
     if not all(services_status.values()):
         health_status["status"] = "degraded"
@@ -152,15 +158,40 @@ async def process_query_legacy(
     Accepts requests in the format:
     {
         "query": "Your question here",
-        "document_url": "https://..."
+        "document_url": "https://..."  // Optional - uses local docs if not provided
     }
     
     And converts them to the standard format internally.
     """
     try:
+        # If no document_url provided, use local documents from docs folder
+        document_source = request.document_url
+        if not document_source:
+            # Use local documents from docs folder
+            import os
+            docs_folder = os.path.join(os.getcwd(), "docs")
+            if os.path.exists(docs_folder):
+                # Find the first document in docs folder
+                for filename in os.listdir(docs_folder):
+                    if filename.lower().endswith(('.pdf', '.docx', '.txt')):
+                        document_source = os.path.join(docs_folder, filename)
+                        print(f"Using local document: {document_source}")
+                        break
+                
+                if not document_source:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="No document URL provided and no documents found in docs folder"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="No document URL provided and docs folder not found"
+                )
+        
         # Convert legacy format to standard format
         standard_request = QueryRequest(
-            documents=request.document_url,
+            documents=document_source,
             questions=[request.query]
         )
         

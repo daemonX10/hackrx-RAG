@@ -13,9 +13,15 @@ class Settings:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL = "gemini-1.5-flash"
     
+    # Pinecone Configuration
+    PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+    PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
+    PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "hackrx-docs")
+    PINECONE_ENDPOINT = os.getenv("PINECONE_ENDPOINT", "")
+    
     # Embedding Configuration
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    EMBEDDING_DIMENSION = 384
+    EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "384"))
     
     # Document Processing
     MAX_CHUNK_SIZE = 1000

@@ -5,18 +5,20 @@ from sentence_transformers import SentenceTransformer
 import os
 import pickle
 from models.schemas import DocumentChunk, ClauseMatch
+from services.pinecone_service import PineconeService
 
 class EmbeddingService:
-    """Handles document embeddings and semantic search using FAISS"""
+    """Handles document embeddings and semantic search using FAISS and Pinecone"""
     
     def __init__(self):
         self.model = None
         self.index = None
         self.chunks = []
         self.is_initialized = False
+        self.pinecone_service = PineconeService()
     
     async def initialize(self):
-        """Initialize the embedding model and FAISS index"""
+        """Initialize the embedding model, FAISS index, and Pinecone"""
         if self.is_initialized:
             return
         
@@ -26,8 +28,11 @@ class EmbeddingService:
             # Load embedding model
             self.model = SentenceTransformer(settings.EMBEDDING_MODEL)
             
-            # Initialize FAISS index
+            # Initialize FAISS index (as fallback)
             self.index = faiss.IndexFlatIP(settings.EMBEDDING_DIMENSION)  # Inner Product for cosine similarity
+            
+            # Initialize Pinecone service
+            await self.pinecone_service.initialize()
             
             self.is_initialized = True
             
@@ -35,7 +40,7 @@ class EmbeddingService:
             raise Exception(f"Failed to initialize embedding service: {str(e)}")
     
     async def create_embeddings(self, chunks: List[DocumentChunk]) -> np.ndarray:
-        """Create embeddings for document chunks"""
+        """Create embeddings for document chunks and attach them to chunks"""
         if not self.is_initialized:
             await self.initialize()
         
@@ -45,53 +50,78 @@ class EmbeddingService:
         # Generate embeddings
         embeddings = self.model.encode(texts, convert_to_tensor=False, normalize_embeddings=True)
         
+        # Attach embeddings to chunks for Pinecone storage
+        for i, chunk in enumerate(chunks):
+            chunk.embedding = embeddings[i].tolist()
+        
         return embeddings
     
-    async def build_index(self, chunks: List[DocumentChunk]) -> None:
-        """Build FAISS index from document chunks"""
+    async def build_index(self, chunks: List[DocumentChunk], document_path: str = "", is_local: bool = False) -> None:
+        """Build index from document chunks with Pinecone priority"""
         if not self.is_initialized:
             await self.initialize()
         
-        # Store chunks for retrieval
+        # Check if document is already in Pinecone (for local docs)
+        if is_local and await self.pinecone_service.is_document_indexed(document_path, is_local=True):
+            print(f"✅ Local document already indexed in Pinecone: {document_path}")
+            return
+        
+        # Store chunks for FAISS fallback
         self.chunks = chunks
         
         # Create embeddings
         embeddings = await self.create_embeddings(chunks)
         
-        # Add to FAISS index
-        self.index.add(embeddings.astype('float32'))
+        # Store in Pinecone if available
+        if self.pinecone_service.is_initialized:
+            await self.pinecone_service.store_document_chunks(chunks, document_path, is_local)
         
-        print(f"Built FAISS index with {len(chunks)} chunks")
+        # Also add to FAISS as fallback
+        if hasattr(self, 'index') and self.index is not None:
+            self.index.add(embeddings.astype('float32'))
+        
+        print(f"Built index with {len(chunks)} chunks {'(cached in Pinecone)' if self.pinecone_service.is_initialized else '(FAISS only)'}")
     
-    async def search_similar_chunks(self, query: str, top_k: int = 5) -> List[ClauseMatch]:
-        """Search for similar document chunks using semantic similarity"""
+    async def search_similar_chunks(self, query: str, top_k: int = 5, prefer_user_docs: bool = True) -> List[ClauseMatch]:
+        """Search for similar document chunks with priority for user documents"""
         if not self.is_initialized:
             await self.initialize()
         
-        if self.index.ntotal == 0:
-            return []
+        # Try Pinecone first (with priority system)
+        if self.pinecone_service.is_initialized:
+            query_embedding = self.model.encode([query], convert_to_tensor=False, normalize_embeddings=True)
+            results = await self.pinecone_service.search_similar_chunks(
+                query_embedding[0].tolist(), 
+                top_k=top_k, 
+                prefer_user_docs=prefer_user_docs
+            )
+            if results:
+                return results
         
-        # Create query embedding
-        query_embedding = self.model.encode([query], convert_to_tensor=False, normalize_embeddings=True)
+        # Fallback to FAISS
+        if hasattr(self, 'index') and self.index is not None and self.index.ntotal > 0:
+            query_embedding = self.model.encode([query], convert_to_tensor=False, normalize_embeddings=True)
+            scores, indices = self.index.search(query_embedding.astype('float32'), top_k)
+            
+            matches = []
+            for score, idx in zip(scores[0], indices[0]):
+                if idx < len(self.chunks):
+                    chunk = self.chunks[idx]
+                    match = ClauseMatch(
+                        content=chunk.content,
+                        similarity_score=float(score),
+                        page_number=chunk.page_number,
+                        chunk_index=chunk.chunk_index,
+                        metadata={
+                            **chunk.metadata,
+                            "source_priority": "fallback_faiss",
+                            "source_type": "faiss"
+                        }
+                    )
+                    matches.append(match)
+            return matches
         
-        # Search in FAISS index
-        scores, indices = self.index.search(query_embedding.astype('float32'), top_k)
-        
-        # Convert results to ClauseMatch objects
-        matches = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx < len(self.chunks):  # Valid index
-                chunk = self.chunks[idx]
-                match = ClauseMatch(
-                    content=chunk.content,
-                    similarity_score=float(score),
-                    page_number=chunk.page_number,
-                    chunk_index=chunk.chunk_index,
-                    metadata=chunk.metadata
-                )
-                matches.append(match)
-        
-        return matches
+        return []
     
     async def get_relevant_context(self, query: str, top_k: int = 3) -> str:
         """Get relevant context for a query as a single string"""

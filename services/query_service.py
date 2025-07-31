@@ -34,14 +34,18 @@ class QueryService:
             if not self.is_initialized:
                 await self.initialize()
             
+            # Determine if this is a local document
+            is_local_doc = not request.documents.startswith(('http://', 'https://'))
+            prefer_user_docs = not is_local_doc  # Prefer user docs when processing external documents
+            
             # Step 1: Process document
             print(f"Processing document: {request.documents}")
             chunks, doc_type = await self.document_processor.process_document(request.documents)
             print(f"Extracted {len(chunks)} chunks from {doc_type} document")
             
-            # Step 2: Build embeddings index
+            # Step 2: Build embeddings index with document info
             print("Building embeddings index...")
-            await self.embedding_service.build_index(chunks)
+            await self.embedding_service.build_index(chunks, request.documents, is_local_doc)
             
             # Step 3: Process each question
             print(f"Processing {len(request.questions)} questions...")
@@ -54,7 +58,7 @@ class QueryService:
             
             async def process_single_question(question: str) -> tuple:
                 async with semaphore:
-                    return await self._answer_single_question(question)
+                    return await self._answer_single_question(question, prefer_user_docs)
             
             # Execute questions
             tasks = [process_single_question(q) for q in request.questions]
@@ -106,13 +110,17 @@ class QueryService:
                 processing_time=time.time() - start_time
             )
     
-    async def _answer_single_question(self, question: str) -> tuple:
+    async def _answer_single_question(self, question: str, prefer_user_docs: bool = True) -> tuple:
         """Process a single question and return answer + detailed response"""
         try:
-            # Step 1: Enhanced context retrieval with multiple strategies
+            # Step 1: Enhanced context retrieval with priority system
             
-            # Get relevant chunks using semantic search
-            relevant_chunks = await self.embedding_service.search_similar_chunks(question, top_k=8)
+            # Get relevant chunks using semantic search with priority
+            relevant_chunks = await self.embedding_service.search_similar_chunks(
+                question, 
+                top_k=8, 
+                prefer_user_docs=prefer_user_docs
+            )
             
             # Get broader context for better understanding
             extended_context = await self.embedding_service.get_relevant_context(question, top_k=5)

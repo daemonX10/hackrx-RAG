@@ -23,6 +23,7 @@ class DocumentChunk(BaseModel):
     page_number: Optional[int] = None
     chunk_index: int
     metadata: Dict[str, Any] = {}
+    embedding: Optional[List[float]] = None  # For Pinecone storage
 
 class ClauseMatch(BaseModel):
     content: str
@@ -48,7 +49,7 @@ class QueryResponse(BaseModel):
 class LegacyQueryRequest(BaseModel):
     """Backward-compatible request format for existing clients"""
     query: str = Field(..., description="The question to ask about the document")
-    document_url: str = Field(..., description="URL to the document to analyze")
+    document_url: Optional[str] = Field(None, description="URL to the document to analyze. If not provided, uses local documents from docs folder")
 
 class ErrorResponse(BaseModel):
     error: str
