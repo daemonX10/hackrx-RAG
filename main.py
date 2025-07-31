@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 from config import settings
-from models.schemas import QueryRequest, QueryResponse, ErrorResponse
+from models.schemas import QueryRequest, QueryResponse, ErrorResponse, LegacyQueryRequest
 from services.query_service import QueryService
 
 # Global service instance
@@ -65,9 +65,21 @@ async def root():
         "version": settings.VERSION,
         "status": "running",
         "endpoints": {
-            "main": "/api/v1/hackrx/run",
-            "health": "/health",
-            "docs": "/docs"
+            "main": "api/v1/hackrx/run",
+            "legacy": "hackrx/run", 
+            "detailed": "api/v1/hackrx/run/detailed",
+            "health": "health",
+            "docs": "docs"
+        },
+        "request_formats": {
+            "standard": {
+                "documents": "string (URL)",
+                "questions": ["array", "of", "strings"]
+            },
+            "legacy": {
+                "query": "string",
+                "document_url": "string (URL)"
+            }
         }
     }
 
@@ -118,6 +130,42 @@ async def process_query(
         
         # Process the query
         result = await service.process_query(request, include_detailed=False)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal server error: {str(e)}"
+        )
+
+@app.post("/hackrx/run", response_model=QueryResponse)
+async def process_query_legacy(
+    request: LegacyQueryRequest,
+    service: QueryService = Depends(get_query_service)
+):
+    """
+    Backward-compatible endpoint for legacy request format
+    
+    Accepts requests in the format:
+    {
+        "query": "Your question here",
+        "document_url": "https://..."
+    }
+    
+    And converts them to the standard format internally.
+    """
+    try:
+        # Convert legacy format to standard format
+        standard_request = QueryRequest(
+            documents=request.document_url,
+            questions=[request.query]
+        )
+        
+        # Process using the standard service method
+        result = await service.process_query(standard_request, include_detailed=False)
         
         return result
         
@@ -212,7 +260,7 @@ if __name__ == "__main__":
     
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host="localhost",
         port=port,
         log_level="info"
     )

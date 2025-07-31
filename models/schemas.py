@@ -45,6 +45,11 @@ class QueryResponse(BaseModel):
     processing_time: Optional[float] = None
     total_tokens_used: Optional[int] = None
 
+class LegacyQueryRequest(BaseModel):
+    """Backward-compatible request format for existing clients"""
+    query: str = Field(..., description="The question to ask about the document")
+    document_url: str = Field(..., description="URL to the document to analyze")
+
 class ErrorResponse(BaseModel):
     error: str
     message: str

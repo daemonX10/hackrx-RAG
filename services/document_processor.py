@@ -14,8 +14,11 @@ class DocumentProcessor:
     async def process_document(self, document_url: str) -> Tuple[List[DocumentChunk], DocumentType]:
         """Main entry point for document processing"""
         try:
-            # Download document
-            content, doc_type = await self._download_document(document_url)
+            # Check if it's a local file or URL
+            if document_url.startswith(('http://', 'https://')):
+                content, doc_type = await self._download_document(document_url)
+            else:
+                content, doc_type = await self._read_local_file(document_url)
             
             # Extract text based on document type
             if doc_type == DocumentType.PDF:
@@ -56,6 +59,36 @@ class DocumentProcessor:
                     doc_type = DocumentType.TEXT
             
             return content, doc_type
+    
+    async def _read_local_file(self, file_path: str) -> Tuple[bytes, DocumentType]:
+        """Read local file and determine type"""
+        try:
+            async with aiofiles.open(file_path, 'rb') as file:
+                content = await file.read()
+            
+            # Determine document type from file extension
+            file_path_lower = file_path.lower()
+            if file_path_lower.endswith('.pdf'):
+                doc_type = DocumentType.PDF
+            elif file_path_lower.endswith('.docx'):
+                doc_type = DocumentType.DOCX
+            elif file_path_lower.endswith('.txt'):
+                doc_type = DocumentType.TEXT
+            else:
+                # Try to detect from content
+                if content.startswith(b'%PDF'):
+                    doc_type = DocumentType.PDF
+                elif b'PK' in content[:10]:  # ZIP signature for DOCX
+                    doc_type = DocumentType.DOCX
+                else:
+                    doc_type = DocumentType.TEXT
+            
+            return content, doc_type
+            
+        except FileNotFoundError:
+            raise Exception(f"File not found: {file_path}")
+        except Exception as e:
+            raise Exception(f"Error reading local file {file_path}: {str(e)}")
     
     async def _process_pdf(self, content: bytes) -> List[DocumentChunk]:
         """Extract text from PDF content"""

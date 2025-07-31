@@ -65,48 +65,118 @@ class LLMService:
             )
     
     def _create_answer_prompt(self, question: str, context: str, relevant_chunks: List[ClauseMatch]) -> str:
-        """Create a structured prompt for question answering"""
+        """Create a structured prompt for question answering with enhanced contextual reasoning"""
         
+        # Prepare relevant chunks with better context
         chunk_info = ""
         if relevant_chunks:
             chunk_info = "\n".join([
-                f"- Chunk {i+1} (Score: {chunk.similarity_score:.3f}): {chunk.content[:200]}..."
-                for i, chunk in enumerate(relevant_chunks[:3])
+                f"RELEVANT SECTION {i+1} (Similarity: {chunk.similarity_score:.3f}):\n{chunk.content}\n"
+                for i, chunk in enumerate(relevant_chunks[:5])  # Use top 5 chunks for better context
             ])
         
-        prompt = f"""You are an expert document analyst specializing in insurance, legal, HR, and compliance domains. 
-Your task is to answer questions based on the provided document context with high accuracy and explainability.
+        # Analyze question type for better prompting
+        question_lower = question.lower()
+        question_type = "general"
+        specific_instructions = ""
+        
+        if any(word in question_lower for word in ["grace period", "waiting period", "period"]):
+            question_type = "time_period"
+            specific_instructions = """
+SPECIAL FOCUS: This question asks about time periods. Look for:
+- Specific durations (days, months, years)
+- Grace periods, waiting periods, or policy periods
+- Time-based conditions or requirements
+- Exact numerical values with units (e.g., "30 days", "36 months", "2 years")"""
+        
+        elif any(word in question_lower for word in ["define", "definition", "what is", "what does", "means"]):
+            question_type = "definition"
+            specific_instructions = """
+SPECIAL FOCUS: This question asks for a definition. Look for:
+- Formal definitions or explanations
+- Detailed descriptions of terms or concepts
+- Specific criteria or requirements that define something
+- Complete explanations rather than partial mentions"""
+        
+        elif any(word in question_lower for word in ["cover", "coverage", "included", "benefit"]):
+            question_type = "coverage"
+            specific_instructions = """
+SPECIAL FOCUS: This question asks about coverage or benefits. Look for:
+- What is covered or included in the policy
+- Specific benefits or advantages
+- Coverage limits, conditions, or restrictions
+- Eligibility criteria for benefits"""
+        
+        elif any(word in question_lower for word in ["discount", "ncd", "no claim"]):
+            question_type = "discount"
+            specific_instructions = """
+SPECIAL FOCUS: This question asks about discounts. Look for:
+- No Claim Discount (NCD) information
+- Percentage discounts or reductions
+- Conditions for earning discounts
+- Maximum or minimum discount amounts"""
+        
+        elif any(word in question_lower for word in ["sub-limit", "limit", "cap", "maximum", "minimum"]):
+            question_type = "limits"
+            specific_instructions = """
+SPECIAL FOCUS: This question asks about limits or caps. Look for:
+- Sub-limits on specific benefits
+- Maximum amounts or percentages
+- Room rent limits, ICU charge limits
+- Caps on coverage amounts"""
 
+        prompt = f"""You are an expert insurance policy analyst with deep knowledge of National Parivar Mediclaim Plus Policy terms and conditions. Your task is to provide precise, accurate answers based strictly on the document content.
+
+QUESTION TYPE: {question_type.upper()}
 QUESTION: {question}
 
-DOCUMENT CONTEXT:
+{specific_instructions}
+
+DOCUMENT CONTEXT (Full document excerpt):
 {context}
 
-RELEVANT DOCUMENT SECTIONS:
 {chunk_info}
 
-INSTRUCTIONS:
-1. Analyze the question carefully and identify the key information needed
-2. Search through the provided context for relevant information
-3. Provide a precise, factual answer based ONLY on the information in the context
-4. If the answer is not clearly stated in the context, say so explicitly
-5. Include specific details like numbers, dates, conditions, or requirements when available
-6. Provide reasoning for your answer citing specific parts of the document
+CRITICAL ANALYSIS INSTRUCTIONS:
+
+1. QUESTION UNDERSTANDING:
+   - Break down the question into key components
+   - Identify exactly what information is being requested
+   - Note any specific details needed (numbers, dates, conditions)
+
+2. DOCUMENT SEARCH STRATEGY:
+   - Scan ALL provided context for relevant information
+   - Look for exact matches and synonymous terms
+   - Pay special attention to numbered sections, definitions, and policy clauses
+   - Cross-reference information across different sections
+
+3. ACCURACY REQUIREMENTS:
+   - Use ONLY information explicitly stated in the document
+   - Include specific numbers, percentages, time periods exactly as written
+   - Maintain original terminology and phrasing from the policy
+   - If information is implied but not explicitly stated, note this clearly
+
+4. ANSWER COMPLETENESS:
+   - Provide the main answer first
+   - Include all relevant conditions, exceptions, or qualifications
+   - Mention related information that adds context
+   - State clearly if information is not found in the document
 
 RESPONSE FORMAT:
-Please structure your response as follows:
+ANSWER: [Direct, complete answer with specific details from the document]
 
-ANSWER: [Your direct answer to the question]
+CONFIDENCE: [Score from 0.0 to 1.0 - Use 0.9+ only when information is explicitly stated, 0.7-0.8 for clear implications, 0.5-0.6 for partial information, 0.3-0.4 when information is unclear, 0.0-0.2 when not found]
 
-CONFIDENCE: [A score from 0.0 to 1.0 indicating your confidence in the answer]
+REASONING: [Detailed explanation citing specific document sections, clause numbers, or exact text that supports your answer. If answer not found, explain what you searched for and why it's not available.]
 
-REASONING: [Detailed explanation of how you arrived at the answer, citing specific document sections]
+QUALITY CHECKLIST:
+✓ Answer addresses the exact question asked
+✓ All specific details (numbers, dates, conditions) are included
+✓ Information is directly from the document text
+✓ Confidence score reflects actual certainty
+✓ Reasoning explains the evidence clearly
 
-Remember:
-- Be precise and factual
-- Only use information from the provided context
-- If information is unclear or missing, state this explicitly
-- Focus on insurance, legal, HR, and compliance terminology accuracy"""
+IMPORTANT: If the specific information requested is not clearly stated in the provided context, respond with "The provided document text does not contain specific information about [topic]" and explain what related information IS available."""
 
         return prompt
     

@@ -109,12 +109,19 @@ class QueryService:
     async def _answer_single_question(self, question: str) -> tuple:
         """Process a single question and return answer + detailed response"""
         try:
-            # Step 1: Get relevant context using embedding search
-            relevant_chunks = await self.embedding_service.search_similar_chunks(question, top_k=5)
-            context = await self.embedding_service.get_relevant_context(question, top_k=3)
+            # Step 1: Enhanced context retrieval with multiple strategies
             
-            # Step 2: Use LLM to generate answer
-            detailed_response = await self.llm_service.answer_question(question, context, relevant_chunks)
+            # Get relevant chunks using semantic search
+            relevant_chunks = await self.embedding_service.search_similar_chunks(question, top_k=8)
+            
+            # Get broader context for better understanding
+            extended_context = await self.embedding_service.get_relevant_context(question, top_k=5)
+            
+            # Create comprehensive context combining multiple approaches
+            comprehensive_context = self._create_comprehensive_context(question, relevant_chunks, extended_context)
+            
+            # Step 2: Use enhanced LLM prompt to generate answer
+            detailed_response = await self.llm_service.answer_question(question, comprehensive_context, relevant_chunks)
             
             return detailed_response.answer, detailed_response
             
@@ -128,6 +135,45 @@ class QueryService:
                 token_usage={}
             )
             return error_response.answer, error_response
+    
+    def _create_comprehensive_context(self, question: str, relevant_chunks: List, extended_context: str) -> str:
+        """Create comprehensive context for better LLM reasoning"""
+        
+        # Analyze question to determine what type of information to prioritize
+        question_lower = question.lower()
+        
+        # Start with extended context
+        context_parts = [extended_context]
+        
+        # Add specific relevant chunks with clear separation
+        if relevant_chunks:
+            context_parts.append("\n" + "="*50)
+            context_parts.append("MOST RELEVANT DOCUMENT SECTIONS:")
+            context_parts.append("="*50)
+            
+            for i, chunk in enumerate(relevant_chunks[:5]):
+                context_parts.append(f"\nSECTION {i+1} (Relevance: {chunk.similarity_score:.3f}):")
+                context_parts.append(f"{chunk.content}")
+                if chunk.page_number:
+                    context_parts.append(f"[Page: {chunk.page_number}]")
+        
+        # Add keyword-based context enhancement
+        if any(word in question_lower for word in ["period", "time", "days", "months", "years"]):
+            context_parts.append("\n" + "="*30)
+            context_parts.append("TIME-RELATED INFORMATION FOCUS")
+            context_parts.append("="*30)
+            
+        elif any(word in question_lower for word in ["define", "definition", "what is", "means"]):
+            context_parts.append("\n" + "="*30)
+            context_parts.append("DEFINITION AND EXPLANATION FOCUS")
+            context_parts.append("="*30)
+            
+        elif any(word in question_lower for word in ["limit", "sub-limit", "cap", "maximum"]):
+            context_parts.append("\n" + "="*30)
+            context_parts.append("LIMITS AND RESTRICTIONS FOCUS")
+            context_parts.append("="*30)
+        
+        return "\n".join(context_parts)
     
     async def analyze_document_structure(self, document_url: str) -> Dict[str, Any]:
         """Analyze document structure and extract metadata"""
