@@ -81,6 +81,15 @@ data/
 *.log
 test_connection.py
 hackathon details/
+quick_test.py
+test_deployed.py
+deploy.bat
+deploy.sh
+start.bat
+start.sh
+Procfile
+runtime.txt
+railway.toml
 
 # Temporary files
 *.tmp
