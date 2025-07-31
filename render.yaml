@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: hackrx-solution
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: MAX_CHUNK_SIZE
+        value: "1000"
+      - key: CHUNK_OVERLAP
+        value: "200"
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+      - "**"
+      ignoredPaths:
+      - "docs/**"
+      - "*.md"
+      - ".env"
+      - "test_*.py"
