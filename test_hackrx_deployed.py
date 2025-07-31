@@ -3,7 +3,7 @@ import asyncio
 import json
 
 # Your deployed Render URL
-DEPLOYED_URL = "https://hackrx.onrender.com"
+DEPLOYED_URL = "https://hackrx-eo40.onrender.com"
 
 async def test_deployed_hackrx():
     print(f"🧪 Testing HackRx API at: {DEPLOYED_URL}")
