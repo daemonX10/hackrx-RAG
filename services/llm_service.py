@@ -98,41 +98,66 @@ SPECIAL FOCUS: This question asks for a definition. Look for:
 - Specific criteria or requirements that define something
 - Complete explanations rather than partial mentions"""
         
-        elif any(word in question_lower for word in ["cover", "coverage", "included", "benefit"]):
+        elif any(word in question_lower for word in ["cover", "coverage", "included", "benefit", "include", "scope"]):
             question_type = "coverage"
             specific_instructions = """
-SPECIAL FOCUS: This question asks about coverage or benefits. Look for:
-- What is covered or included in the policy
-- Specific benefits or advantages
+SPECIAL FOCUS: This question asks about coverage, benefits, or what's included. Look for:
+- What is covered, included, or within scope
+- Specific benefits, services, or features
 - Coverage limits, conditions, or restrictions
-- Eligibility criteria for benefits"""
+- Eligibility criteria or requirements
+- Services, products, or areas included"""
         
-        elif any(word in question_lower for word in ["discount", "ncd", "no claim"]):
+        elif any(word in question_lower for word in ["discount", "reduction", "deduction", "savings", "rebate"]):
             question_type = "discount"
             specific_instructions = """
-SPECIAL FOCUS: This question asks about discounts. Look for:
-- No Claim Discount (NCD) information
-- Percentage discounts or reductions
-- Conditions for earning discounts
-- Maximum or minimum discount amounts"""
+SPECIAL FOCUS: This question asks about discounts, reductions, or savings. Look for:
+- Discount percentages, amounts, or reductions
+- Conditions for earning discounts or savings
+- Maximum or minimum discount amounts
+- Rebates, deductions, or cost savings
+- Special offers or promotional reductions"""
         
-        elif any(word in question_lower for word in ["sub-limit", "limit", "cap", "maximum", "minimum"]):
+        elif any(word in question_lower for word in ["limit", "cap", "maximum", "minimum", "threshold", "restriction"]):
             question_type = "limits"
             specific_instructions = """
-SPECIAL FOCUS: This question asks about limits or caps. Look for:
-- Sub-limits on specific benefits
-- Maximum amounts or percentages
-- Room rent limits, ICU charge limits
-- Caps on coverage amounts"""
+SPECIAL FOCUS: This question asks about limits, caps, or restrictions. Look for:
+- Maximum and minimum amounts, quantities, or values
+- Caps, thresholds, or upper/lower bounds
+- Restrictions, limitations, or constraints
+- Specific numerical limits or ranges
+- Conditions that impose limits or restrictions"""
+        
+        elif any(word in question_lower for word in ["process", "procedure", "step", "how to", "method"]):
+            question_type = "process"
+            specific_instructions = """
+SPECIAL FOCUS: This question asks about processes or procedures. Look for:
+- Step-by-step procedures or methods
+- Process descriptions and workflows
+- Instructions or guidelines
+- Sequential actions or requirements
+- How-to information and methodologies"""
+        
+        elif any(word in question_lower for word in ["requirement", "criteria", "condition", "eligible", "qualification"]):
+            question_type = "requirements"
+            specific_instructions = """
+SPECIAL FOCUS: This question asks about requirements or criteria. Look for:
+- Eligibility criteria and qualifications
+- Required conditions or prerequisites
+- Mandatory requirements or specifications
+- Qualification standards or benchmarks
+- Compliance requirements or conditions"""
 
-        prompt = f"""You are an expert insurance policy analyst with deep knowledge of National Parivar Mediclaim Plus Policy terms and conditions. Your task is to provide precise, accurate answers based strictly on the document content.
+        prompt = f"""You are an expert document analyst specialized in extracting and analyzing information from various types of documents. Your task is to provide precise, accurate answers based strictly on the provided document content.
+
+DOCUMENT SOURCE: The analysis is based on the user-provided document. If no specific document was provided by the user, information comes from the available knowledge base.
 
 QUESTION TYPE: {question_type.upper()}
 QUESTION: {question}
 
 {specific_instructions}
 
-DOCUMENT CONTEXT (Full document excerpt):
+DOCUMENT CONTEXT (Document excerpt):
 {context}
 
 {chunk_info}
@@ -142,41 +167,47 @@ CRITICAL ANALYSIS INSTRUCTIONS:
 1. QUESTION UNDERSTANDING:
    - Break down the question into key components
    - Identify exactly what information is being requested
-   - Note any specific details needed (numbers, dates, conditions)
+   - Note any specific details needed (numbers, dates, conditions, policies, procedures)
 
 2. DOCUMENT SEARCH STRATEGY:
    - Scan ALL provided context for relevant information
    - Look for exact matches and synonymous terms
-   - Pay special attention to numbered sections, definitions, and policy clauses
+   - Pay special attention to numbered sections, definitions, policy clauses, procedures, and key terms
    - Cross-reference information across different sections
 
 3. ACCURACY REQUIREMENTS:
    - Use ONLY information explicitly stated in the document
-   - Include specific numbers, percentages, time periods exactly as written
-   - Maintain original terminology and phrasing from the policy
+   - Include specific numbers, percentages, time periods, names, dates exactly as written
+   - Maintain original terminology and phrasing from the document
    - If information is implied but not explicitly stated, note this clearly
 
 4. ANSWER COMPLETENESS:
    - Provide the main answer first
-   - Include all relevant conditions, exceptions, or qualifications
+   - Include all relevant conditions, exceptions, qualifications, or procedures
    - Mention related information that adds context
-   - State clearly if information is not found in the document
+   - State clearly if information is not found in the provided document
+
+5. DOCUMENT CONTEXT AWARENESS:
+   - If answering from user-provided document: Focus primarily on that document's content
+   - If no user document provided: Use available knowledge base information
+   - Always specify the source of your information when possible
 
 RESPONSE FORMAT:
 ANSWER: [Direct, complete answer with specific details from the document]
 
 CONFIDENCE: [Score from 0.0 to 1.0 - Use 0.9+ only when information is explicitly stated, 0.7-0.8 for clear implications, 0.5-0.6 for partial information, 0.3-0.4 when information is unclear, 0.0-0.2 when not found]
 
-REASONING: [Detailed explanation citing specific document sections, clause numbers, or exact text that supports your answer. If answer not found, explain what you searched for and why it's not available.]
+REASONING: [Detailed explanation citing specific document sections, clause numbers, page references, or exact text that supports your answer. If answer not found, explain what you searched for and why it's not available.]
 
 QUALITY CHECKLIST:
 ✓ Answer addresses the exact question asked
-✓ All specific details (numbers, dates, conditions) are included
+✓ All specific details (numbers, dates, conditions, names) are included
 ✓ Information is directly from the document text
 ✓ Confidence score reflects actual certainty
 ✓ Reasoning explains the evidence clearly
+✓ Source of information is clear (user document vs knowledge base)
 
-IMPORTANT: If the specific information requested is not clearly stated in the provided context, respond with "The provided document text does not contain specific information about [topic]" and explain what related information IS available."""
+IMPORTANT: If the specific information requested is not clearly stated in the provided context, respond with "The provided document does not contain specific information about [topic]" and explain what related information IS available. Always prioritize the user's document content when available."""
 
         return prompt
     

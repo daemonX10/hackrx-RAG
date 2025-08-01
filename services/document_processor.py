@@ -1,6 +1,7 @@
 import asyncio
 import aiofiles
 import httpx
+import ssl
 from typing import List, Optional, Tuple
 from io import BytesIO
 import PyPDF2
@@ -35,30 +36,86 @@ class DocumentProcessor:
     
     async def _download_document(self, url: str) -> Tuple[bytes, DocumentType]:
         """Download document from URL and determine type"""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=30.0)
+        # Try multiple approaches to handle different SSL configurations
+        approaches = [
+            self._download_with_ssl_context,
+            self._download_without_verification,
+            self._download_with_basic_client
+        ]
+        
+        last_error = None
+        for approach in approaches:
+            try:
+                return await approach(url)
+            except Exception as e:
+                last_error = e
+                print(f"Download approach failed: {e}")
+                continue
+        
+        # If all approaches failed, raise the last error
+        raise Exception(f"Failed to download document after trying all methods: {last_error}")
+    
+    async def _download_with_ssl_context(self, url: str) -> Tuple[bytes, DocumentType]:
+        """Download with custom SSL context for legacy servers"""
+        ssl_context = ssl.create_default_context()
+        ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
+        ssl_context.options |= ssl.OP_LEGACY_SERVER_CONNECT
+        
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            verify=ssl_context,
+            follow_redirects=True,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        ) as client:
+            response = await client.get(url)
             response.raise_for_status()
-            
-            content = response.content
-            content_type = response.headers.get('content-type', '').lower()
-            
-            # Determine document type
-            if 'pdf' in content_type or url.lower().endswith('.pdf'):
+            return self._process_response(response, url)
+    
+    async def _download_without_verification(self, url: str) -> Tuple[bytes, DocumentType]:
+        """Download without SSL verification as fallback"""
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            verify=False,
+            follow_redirects=True,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return self._process_response(response, url)
+    
+    async def _download_with_basic_client(self, url: str) -> Tuple[bytes, DocumentType]:
+        """Download with basic httpx client configuration"""
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return self._process_response(response, url)
+    
+    def _process_response(self, response: httpx.Response, url: str) -> Tuple[bytes, DocumentType]:
+        """Process HTTP response and determine document type"""
+        content = response.content
+        content_type = response.headers.get('content-type', '').lower()
+        
+        # Determine document type
+        if 'pdf' in content_type or url.lower().endswith('.pdf'):
+            doc_type = DocumentType.PDF
+        elif 'wordprocessingml' in content_type or url.lower().endswith('.docx'):
+            doc_type = DocumentType.DOCX
+        elif 'text' in content_type or url.lower().endswith('.txt'):
+            doc_type = DocumentType.TEXT
+        else:
+            # Try to detect from content
+            if content.startswith(b'%PDF'):
                 doc_type = DocumentType.PDF
-            elif 'wordprocessingml' in content_type or url.lower().endswith('.docx'):
+            elif b'PK' in content[:10]:  # ZIP signature for DOCX
                 doc_type = DocumentType.DOCX
-            elif 'text' in content_type or url.lower().endswith('.txt'):
-                doc_type = DocumentType.TEXT
             else:
-                # Try to detect from content
-                if content.startswith(b'%PDF'):
-                    doc_type = DocumentType.PDF
-                elif b'PK' in content[:10]:  # ZIP signature for DOCX
-                    doc_type = DocumentType.DOCX
-                else:
-                    doc_type = DocumentType.TEXT
-            
-            return content, doc_type
+                doc_type = DocumentType.TEXT
+        
+        return content, doc_type
     
     async def _read_local_file(self, file_path: str) -> Tuple[bytes, DocumentType]:
         """Read local file and determine type"""
